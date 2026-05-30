@@ -372,11 +372,11 @@ struct MainView: View {
                             cameraFillColor: generator.cameraFillColor,
                             ringLightColor: generator.ringLightColor
                         )
-                        .overlay(alignment: .trailing) {
+                        .overlay(alignment: .leading) {
                             Preview3DControls(generator: generator)
                                 .frame(width: 300)
                                 .frame(maxHeight: 700)
-                                .padding(16)
+                                .padding(20)
                         }
                     } else if let textureToDisplay = currentTexture {
                         TilingMetalView(
