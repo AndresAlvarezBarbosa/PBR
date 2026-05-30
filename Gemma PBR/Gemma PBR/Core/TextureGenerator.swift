@@ -90,6 +90,13 @@ final class TextureGenerator {
     var ringLightColor: Color      = .white
     var showLightGizmos: Bool      = false
 
+    // Flags that go true only after the corresponding GPU bake finishes.
+    // Prevents empty (zeroed) textures being applied as PBR maps.
+    var normalBaked:    Bool = false
+    var roughnessBaked: Bool = false
+    var metallicBaked:  Bool = false
+    var aoBaked:        Bool = false
+
     func applyTexturesToBall() { applyToBallTrigger &+= 1 }
     func refocusCamera()       { refocusTrigger &+= 1 }
 
@@ -117,6 +124,12 @@ final class TextureGenerator {
             self.metallicTexture = self.makeEmptyTexture()
             self.aoTexture = self.makeEmptyTexture()
             
+            // Reset ready-flags so stale images aren't used before new bakes finish
+            normalBaked    = false
+            roughnessBaked = false
+            metallicBaked  = false
+            aoBaked        = false
+
             // Auto-bake all maps for live preview
             bakeNormalMap()
             bakeRoughnessMap()
@@ -131,11 +144,11 @@ final class TextureGenerator {
         guard let source = sourceTexture, let target = seamlessTexture else { return }
         isProcessing = true
         
-        runComputeKernel(name: "makeItTileKernel") { encoder in
+        runComputeKernel(name: "makeItTileKernel", encoding: { encoder in
             encoder.setTexture(source, index: 0)
             encoder.setTexture(target, index: 1)
             encoder.setBytes(&seamlessStrength, length: MemoryLayout<Float>.size, index: 0)
-        }
+        })
         
         // After making it seamless, we should use the seamless texture as the new source for normals
         self.sourceTexture = target
@@ -145,51 +158,51 @@ final class TextureGenerator {
         guard let source = sourceTexture, let normal = normalTexture else { return }
         isProcessing = true
         
-        runComputeKernel(name: "sobelNormalKernel") { encoder in
+        runComputeKernel(name: "sobelNormalKernel", encoding: { encoder in
             encoder.setTexture(source, index: 0)
             encoder.setTexture(normal, index: 1)
             encoder.setBytes(&normalStrength, length: MemoryLayout<Float>.size, index: 0)
-        }
+        }, onComplete: { self.normalBaked = true })
     }
 
     func bakeRoughnessMap() {
         guard let source = sourceTexture, let target = roughnessTexture else { return }
         isProcessing = true
 
-        runComputeKernel(name: "pbrMapKernel") { encoder in
+        runComputeKernel(name: "pbrMapKernel", encoding: { encoder in
             encoder.setTexture(source, index: 0)
             encoder.setTexture(target, index: 1)
             encoder.setBytes(&roughnessMin, length: MemoryLayout<Float>.size, index: 0)
             encoder.setBytes(&roughnessMax, length: MemoryLayout<Float>.size, index: 1)
-        }
+        }, onComplete: { self.roughnessBaked = true })
     }
 
     func bakeMetallicMap() {
         guard let source = sourceTexture, let target = metallicTexture else { return }
         isProcessing = true
 
-        runComputeKernel(name: "pbrMapKernel") { encoder in
+        runComputeKernel(name: "pbrMapKernel", encoding: { encoder in
             encoder.setTexture(source, index: 0)
             encoder.setTexture(target, index: 1)
             encoder.setBytes(&metallicMin, length: MemoryLayout<Float>.size, index: 0)
             encoder.setBytes(&metallicMax, length: MemoryLayout<Float>.size, index: 1)
-        }
+        }, onComplete: { self.metallicBaked = true })
     }
 
     func bakeAOMap() {
         guard let source = sourceTexture, let target = aoTexture else { return }
         isProcessing = true
 
-        runComputeKernel(name: "aoKernel") { encoder in
+        runComputeKernel(name: "aoKernel", encoding: { encoder in
             encoder.setTexture(source, index: 0)
             encoder.setTexture(target, index: 1)
             encoder.setBytes(&aoStrength, length: MemoryLayout<Float>.size, index: 0)
-        }
+        }, onComplete: { self.aoBaked = true })
     }
 
     // MARK: - Helper Methods
     
-    private func runComputeKernel(name: String, encoding: (MTLComputeCommandEncoder) -> Void) {
+    private func runComputeKernel(name: String, encoding: (MTLComputeCommandEncoder) -> Void, onComplete: (@MainActor () -> Void)? = nil) {
         guard let library = device.makeDefaultLibrary(),
               let function = library.makeFunction(name: name) else {
             isProcessing = false
@@ -214,9 +227,10 @@ final class TextureGenerator {
             encoder.endEncoding()
             
             commandBuffer.addCompletedHandler { _ in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.isProcessing = false
                     self.redrawTrigger &+= 1
+                    onComplete?()
                 }
             }
             commandBuffer.commit()

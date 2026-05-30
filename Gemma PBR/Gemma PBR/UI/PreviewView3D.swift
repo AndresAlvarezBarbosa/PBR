@@ -944,10 +944,13 @@ struct PreviewView3D: NSViewRepresentable {
         // round-trip through the GPU output. Re-read only when a bake has
         // completed, gated on redrawTrigger.
         if coordinator.lastTrigger != redrawTrigger {
-            coordinator.normalImage = nsImage(from: generator.normalTexture)
-            coordinator.roughnessImage = nsImage(from: generator.roughnessTexture)
-            coordinator.metallicImage = nsImage(from: generator.metallicTexture)
-            coordinator.aoImage = nsImage(from: generator.aoTexture)
+            // Only pull a map from GPU if its bake has actually completed — reading a
+            // zeroed empty texture produces a degenerate (0,0,0) normal which makes
+            // the ball appear completely black under PBR lighting.
+            coordinator.normalImage    = generator.normalBaked    ? nsImage(from: generator.normalTexture)    : nil
+            coordinator.roughnessImage = generator.roughnessBaked ? nsImage(from: generator.roughnessTexture) : nil
+            coordinator.metallicImage  = generator.metallicBaked  ? nsImage(from: generator.metallicTexture)  : nil
+            coordinator.aoImage        = generator.aoBaked        ? nsImage(from: generator.aoTexture)        : nil
             coordinator.lastTrigger = redrawTrigger
         }
         

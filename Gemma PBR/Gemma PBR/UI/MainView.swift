@@ -378,6 +378,15 @@ struct MainView: View {
                                 .frame(maxHeight: 700)
                                 .padding(20)
                         }
+                        .overlay(alignment: .bottomTrailing) {
+                            if generator.sourceTexture != nil {
+                                UV3DView(
+                                    sourceImage: generator.sourceImage,
+                                    scale: generator.ballTextureScale
+                                )
+                                .padding(16)
+                            }
+                        }
                     } else if let textureToDisplay = currentTexture {
                         TilingMetalView(
                             texture: textureToDisplay,
@@ -404,6 +413,17 @@ struct MainView: View {
                         )
                     }
                     
+                    if displayMode == .maps2D && generator.sourceTexture != nil {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                UVGridView(tileCount: generator.tileCount)
+                                    .padding(16)
+                            }
+                        }
+                    }
+
                     if generator.isProcessing {
                         VStack {
                             ProgressView()
@@ -627,6 +647,122 @@ struct RotationDial: View {
                         angle = Float(degrees.truncatingRemainder(dividingBy: 360))
                     }
             )
+        }
+    }
+}
+
+// MARK: - UV Grid Corner View
+
+struct UVGridView: View {
+    let tileCount: Float
+
+    var body: some View {
+        Canvas { ctx, size in
+            let steps = max(1, Int(tileCount))
+            let cellW = size.width  / CGFloat(steps)
+            let cellH = size.height / CGFloat(steps)
+
+            // Checkerboard background
+            for row in 0..<steps {
+                for col in 0..<steps {
+                    let light = (row + col) % 2 == 0
+                    let rect = CGRect(x: CGFloat(col) * cellW, y: CGFloat(row) * cellH,
+                                      width: cellW, height: cellH)
+                    ctx.fill(Path(rect), with: .color(light ? Color.white.opacity(0.15)
+                                                            : Color.black.opacity(0.25)))
+                }
+            }
+
+            // Grid lines
+            for i in 0...steps {
+                let x = CGFloat(i) * size.width  / CGFloat(steps)
+                let y = CGFloat(i) * size.height / CGFloat(steps)
+                let isBorder = (i == 0 || i == steps)
+                let lineW: CGFloat = isBorder ? 1.5 : 0.5
+                let alpha: CGFloat = isBorder ? 0.9 : 0.45
+
+                var h = Path()
+                h.move(to: CGPoint(x: 0, y: y))
+                h.addLine(to: CGPoint(x: size.width, y: y))
+                ctx.stroke(h, with: .color(.white.opacity(alpha)), lineWidth: lineW)
+
+                var v = Path()
+                v.move(to: CGPoint(x: x, y: 0))
+                v.addLine(to: CGPoint(x: x, y: size.height))
+                ctx.stroke(v, with: .color(.white.opacity(alpha)), lineWidth: lineW)
+            }
+        }
+        .frame(width: 100, height: 100)
+        .background(.black.opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(alignment: .topLeading) {
+            Text("UV")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.85))
+                .padding(4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Text("\(Int(tileCount))×\(Int(tileCount))")
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.6))
+                .padding(4)
+        }
+    }
+}
+
+// MARK: - UV 3D Corner View
+
+struct UV3DView: View {
+    let sourceImage: NSImage?
+    let scale: Float
+
+    var body: some View {
+        ZStack {
+            if let img = sourceImage {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(0.55)
+            } else {
+                Color.black.opacity(0.4)
+            }
+
+            Canvas { ctx, size in
+                let tileCount = CGFloat(max(1, scale))
+                let steps = Int(ceil(Double(tileCount)))
+
+                for i in 0...steps {
+                    let x = CGFloat(i) * size.width  / tileCount
+                    let y = CGFloat(i) * size.height / tileCount
+                    let isBorder = (i == 0 || i == steps)
+                    let lineW: CGFloat = isBorder ? 1.5 : 0.5
+                    let alpha: CGFloat = isBorder ? 1.0 : 0.5
+
+                    var h = Path()
+                    h.move(to: CGPoint(x: 0, y: y))
+                    h.addLine(to: CGPoint(x: size.width, y: y))
+                    ctx.stroke(h, with: .color(.white.opacity(alpha)), lineWidth: lineW)
+
+                    var v = Path()
+                    v.move(to: CGPoint(x: x, y: 0))
+                    v.addLine(to: CGPoint(x: x, y: size.height))
+                    ctx.stroke(v, with: .color(.white.opacity(alpha)), lineWidth: lineW)
+                }
+            }
+        }
+        .frame(width: 100, height: 100)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(alignment: .topLeading) {
+            Text("UV")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.85))
+                .padding(4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Text(String(format: "%.1f×", scale))
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.7))
+                .padding(4)
         }
     }
 }
